@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BankApp — Console</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --ink: #0f1b2d;
+    --ink-soft: #47566b;
+    --ink-faint: #8996a8;
+    --line: #e4e9f2;
+    --brand: #0b2a4a;
+    --brand-2: #123a63;
+    --accent: #1f8a70;
+    --accent-soft: #e6f4f0;
+    --danger: #b3261e;
+    --danger-soft: #fbeae9;
+    --warn: #9a6700;
+    --warn-soft: #fff4d6;
+    --radius: 14px;
+    --shadow-sm: 0 1px 2px rgba(15, 27, 45, .06), 0 1px 3px rgba(15, 27, 45, .04);
+    --shadow-md: 0 6px 24px rgba(15, 27, 45, .10);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1220;
+      --surface: #121c2e;
+      --surface-2: #0e1728;
+      --ink: #eef2f8;
+      --ink-soft: #aab7c9;
+      --ink-faint: #6c7c92;
+      --line: #223049;
+      --brand: #0c2038;
+      --brand-2: #16345a;
+      --accent: #34b79a;
+      --accent-soft: #10241f;
+      --danger: #f2b8b5;
+      --danger-soft: #2a1513;
+      --warn: #e8c15a;
+      --warn-soft: #2a2109;
+      --shadow-md: 0 6px 24px rgba(0, 0, 0, .35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  button, input, select { font: inherit; }
+
+  .app { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+
+  /* ---------- sidebar ---------- */
+  .side {
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%);
+    color: #dce6f2;
+    padding: 22px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 6px 8px 20px; }
+  .brand .mark {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: #fff; color: var(--brand);
+    display: grid; place-items: center; font-weight: 800; font-size: 18px;
+    flex: none;
+  }
+  .brand b { font-size: 17px; letter-spacing: .2px; color: #fff; }
+  .brand span { display: block; font-size: 11px; color: #9fb3c9; letter-spacing: .12em; text-transform: uppercase; }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+  .nav button {
+    display: flex; align-items: center; gap: 11px;
+    width: 100%; text-align: left;
+    padding: 10px 12px; border: 0; border-radius: 10px;
+    background: transparent; color: #c7d5e5; cursor: pointer;
+    font-size: 14px; font-weight: 500;
+    transition: background .15s, color .15s;
+  }
+  .nav button svg { width: 18px; height: 18px; flex: none; opacity: .85; }
+  .nav button:hover { background: rgba(255, 255, 255, .07); color: #fff; }
+  .nav button.active { background: rgba(255, 255, 255, .14); color: #fff; }
+
+  .side-foot { margin-top: auto; padding: 10px 10px 0; font-size: 12px; color: #8ba0b8; }
+  .health { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); flex: none; }
+  .dot.up { background: #37d39a; box-shadow: 0 0 0 3px rgba(55, 211, 154, .2); }
+  .dot.down { background: #ff6b6b; box-shadow: 0 0 0 3px rgba(255, 107, 107, .2); }
+
+  /* ---------- main ---------- */
+  .main { padding: 30px 34px 60px; max-width: 1160px; }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+  .page-head h1 { margin: 0; font-size: 23px; letter-spacing: -.01em; }
+  .page-head p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13.5px; }
+
+  .view { display: none; animation: fade .2s ease; }
+  .view.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- cards / grid ---------- */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 26px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow-sm);
+  }
+  .stat .label { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faint); }
+  .stat .value { font-size: 25px; font-weight: 700; margin-top: 8px; letter-spacing: -.02em; }
+  .stat .sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .card > header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 15px 18px; border-bottom: 1px solid var(--line);
+  }
+  .card > header h2 { margin: 0; font-size: 15px; }
+  .card > header .hint { font-size: 12.5px; color: var(--ink-faint); }
+  .card .body { padding: 18px; }
+  .card .body.flush { padding: 0; }
+
+  /* ---------- table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); font-weight: 600; }
+  tbody tr:last-child td, tbody tr:last-child td { border-bottom: 0; }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: var(--surface-2); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--ink-faint); }
+
+  .empty { padding: 40px 18px; text-align: center; color: var(--ink-faint); font-size: 13.5px; }
+  .spinner {
+    width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: -4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- badges ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .badge.ACTIVE, .badge.DEPOSIT, .badge.TRANSFER_IN { background: var(--accent-soft); color: var(--accent); }
+  .badge.FROZEN { background: var(--warn-soft); color: var(--warn); }
+  .badge.CLOSED, .badge.WITHDRAWAL, .badge.TRANSFER_OUT { background: var(--danger-soft); color: var(--danger); }
+
+  /* ---------- forms ---------- */
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+  .field input, .field select {
+    padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--surface); color: var(--ink); outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field .err { font-size: 11.5px; color: var(--danger); min-height: 0; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 9px 15px; border-radius: 9px; border: 1px solid transparent;
+    font-size: 13.5px; font-weight: 600; cursor: pointer;
+    transition: background .15s, border-color .15s, opacity .15s;
+  }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1a7862; }
+  .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink); }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+  .btn-sm { padding: 6px 10px; font-size: 12.5px; }
+  .btn-danger { background: transparent; border-color: var(--danger-soft); color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-soft); }
+  .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* ---------- modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(9, 16, 28, .5);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 8vh 16px; z-index: 50; backdrop-filter: blur(2px);
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-md);
+    width: 100%; max-width: 460px; animation: pop .18s ease;
+  }
+  .drawer { max-width: 640px; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-8px) scale(.98); } to { opacity: 1; transform: none; } }
+  .modal header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  .modal header h3 { margin: 0; font-size: 16px; }
+  .modal .content { padding: 18px; }
+  .modal footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); }
+  .icon-btn { border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 20px; line-height: 1; padding: 4px; border-radius: 6px; }
+  .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+  /* ---------- toasts ---------- */
+  .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 10px; z-index: 80; }
+  .toast {
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; box-shadow: var(--shadow-md); padding: 12px 14px; max-width: 340px;
+    font-size: 13px; animation: slide .2s ease;
+  }
+  .toast.error { border-left-color: var(--danger); }
+  .toast b { display: block; margin-bottom: 2px; font-size: 13px; }
+  .toast span { color: var(--ink-soft); }
+  @keyframes slide { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+  .inline-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 4px; }
+  .inline-controls .field { margin-bottom: 0; min-width: 220px; }
+
+  .pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 18px; font-size: 13px; color: var(--ink-soft); }
+
+  @media (max-width: 920px) {
+    .app { grid-template-columns: 1fr; }
+    .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .side .brand { padding-bottom: 6px; }
+    .nav { flex-direction: row; flex-wrap: wrap; }
+    .side-foot { margin: 0; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .main { padding: 22px 18px 50px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark">B</div>
+      <div>
+        <b>BankApp</b>
+        <span>Console</span>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-view="overview" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h8V3H3zM13 21h8V11h-8zM13 3v6h8V3zM3 21h8v-6H3z"/></svg>
+        Overview
+      </button>
+      <button data-view="customers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Customers
+      </button>
+      <button data-view="accounts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>
+        Accounts
+      </button>
+      <button data-view="transfer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17V7h10M7 7l10 10"/></svg>
+        Transfer
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="health"><span class="dot" id="healthDot"></span><span id="healthText">checking…</span></div>
+      <div style="margin-top:8px"><a href="/swagger-ui.html" target="_blank" rel="noopener">API docs ↗</a></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- OVERVIEW -->
+    <section class="view active" id="view-overview">
+      <div class="page-head">
+        <div><h1>Overview</h1><p>Portfolio snapshot across all customers and accounts.</p></div>
+        <button class="btn btn-ghost" id="refreshOverview">Refresh</button>
+      </div>
+      <div class="stat-grid" id="statGrid">
+        <div class="stat"><div class="label">Customers</div><div class="value" id="stCustomers">—</div></div>
+        <div class="stat"><div class="label">Accounts</div><div class="value" id="stAccounts">—</div><div class="sub" id="stAccountsSub"></div></div>
+        <div class="stat"><div class="label">Total balance</div><div class="value" id="stBalance">—</div><div class="sub">across active + frozen</div></div>
+        <div class="stat"><div class="label">Avg balance</div><div class="value" id="stAvg">—</div><div class="sub">per open account</div></div>
+      </div>
+      <div class="card">
+        <header><h2>Accounts by customer</h2><span class="hint">largest balances first</span></header>
+        <div class="body flush"><div id="overviewTable"></div></div>
+      </div>
+    </section>
+
+    <!-- CUSTOMERS -->
+    <section class="view" id="view-customers">
+      <div class="page-head">
+        <div><h1>Customers</h1><p>Create and manage account holders.</p></div>
+        <button class="btn btn-primary" id="newCustomerBtn">+ New customer</button>
+      </div>
+      <div class="card">
+        <header><h2>All customers</h2><span class="hint" id="customerCount"></span></header>
+        <div class="body flush"><div id="customerTable"></div></div>
+      </div>
+    </section>
+
+    <!-- ACCOUNTS -->
+    <section class="view" id="view-accounts">
+      <div class="page-head">
+        <div><h1>Accounts</h1><p>Open accounts, move money, review statements.</p></div>
+      </div>
+      <div class="card">
+        <header><h2>Browse accounts</h2></header>
+        <div class="body">
+          <div class="inline-controls">
+            <div class="field">
+              <label for="acctCustomer">Customer</label>
+              <select id="acctCustomer"><option value="">Select a customer…</option></select>
+            </div>
+            <button class="btn btn-primary" id="openAccountBtn" disabled>+ Open account</button>
+          </div>
+        </div>
+        <div class="body flush"><div id="accountTable"><div class="empty">Pick a customer to see their accounts.</div></div></div>
+      </div>
+    </section>
+
+    <!-- TRANSFER -->
+    <section class="view" id="view-transfer">
+      <div class="page-head">
+        <div><h1>Transfer</h1><p>Move funds between two accounts.</p></div>
+      </div>
+      <div class="card" style="max-width:520px">
+        <header><h2>New transfer</h2></header>
+        <div class="body">
+          <form id="transferForm">
+            <div class="field">
+              <label for="tfFrom">From account</label>
+              <input id="tfFrom" name="fromAccountNumber" placeholder="e.g. 1000000001" autocomplete="off" />
+              <div class="err" data-err="fromAccountNumber"></div>
+            </div>
+            <div class="field">
+              <label for="tfTo">To account</label>
+              <input id="tfTo" name="toAccountNumber" placeholder="e.g. 1000000002" autocomplete="off" />
+              <div class="err" data-err="toAccountNumber"></div>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="tfAmount">Amount</label>
+                <input id="tfAmount" name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" />
+                <div class="err" data-err="amount"></div>
+              </div>
+              <div class="field">
+                <label for="tfDesc">Description</label>
+                <input id="tfDesc" name="description" maxlength="140" placeholder="optional" />
+                <div class="err" data-err="description"></div>
+              </div>
+            </div>
+            <button class="btn btn-primary" type="submit" style="width:100%">Send transfer</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function () {
+  "use strict";
+  var API = "/api/v1";
+
+  /* ---------------- helpers ---------------- */
+  function el(tag, attrs, kids) {
+    var n = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      var val = attrs[k];
+      if (k === "class") n.className = val;
+      else if (k === "html") n.innerHTML = val;
+      else if (k === "text") n.textContent = val;
+      else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), val);
+      else if (val === null || val === undefined || val === false) continue;
+      else n.setAttribute(k, val);
+    }
+    (kids || []).forEach(function (c) { if (c != null) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return n;
+  }
+  function money(v, ccy) {
+    var n = Number(v || 0);
+    try { return n.toLocaleString(undefined, { style: "currency", currency: ccy || "USD" }); }
+    catch (e) { return (ccy || "USD") + " " + n.toFixed(2); }
+  }
+  function fmtDate(s) {
+    if (!s) return "—";
+    var d = new Date(s);
+    return isNaN(d) ? s : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+  function fmtDateTime(s) {
+    if (!s) return "—";
+    var d = new Date(s);
+    return isNaN(d) ? s : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+  function badge(kind) { return el("span", { class: "badge " + kind, text: String(kind).replace(/_/g, " ") }); }
+
+  function toast(title, msg, isErr) {
+    var box = document.getElementById("toasts");
+    var t = el("div", { class: "toast" + (isErr ? " error" : "") }, [
+      el("b", { text: title }), msg ? el("span", { text: msg }) : null
+    ]);
+    box.appendChild(t);
+    setTimeout(function () { t.style.opacity = "0"; t.style.transform = "translateX(20px)"; setTimeout(function () { t.remove(); }, 200); }, isErr ? 6000 : 3500);
+  }
+
+  function ApiErr(payload, status) { this.payload = payload || {}; this.status = status; this.message = (payload && payload.message) || ("HTTP " + status); }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var init = { method: opts.method || "GET", headers: {} };
+    if (opts.body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(opts.body); }
+    return fetch(API + path, init).then(function (r) {
+      if (r.status === 204) return null;
+      var ct = r.headers.get("content-type") || "";
+      var parse = ct.indexOf("json") > -1 ? r.json() : r.text();
+      return parse.then(function (data) {
+        if (!r.ok) throw new ApiErr(typeof data === "object" ? data : { message: data }, r.status);
+        return data;
+      });
+    });
+  }
+
+  function showFieldErrors(form, err) {
+    form.querySelectorAll("[data-err]").forEach(function (n) { n.textContent = ""; });
+    var fe = err && err.payload && err.payload.fieldErrors;
+    if (fe) for (var f in fe) {
+      var slot = form.querySelector('[data-err="' + f + '"]');
+      if (slot) slot.textContent = fe[f];
+    }
+  }
+  function handle(err, form) {
+    if (err instanceof ApiErr) {
+      if (form) showFieldErrors(form, err);
+      toast(err.status === 422 || err.status === 409 ? "Rejected" : "Error " + (err.status || ""), err.message, true);
+    } else {
+      toast("Network error", String(err && err.message || err), true);
+    }
+  }
+
+  /* ---------------- routing ---------------- */
+  var views = { overview: renderOverview, customers: renderCustomers, accounts: null, transfer: null };
+  document.getElementById("nav").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-view]");
+    if (!b) return;
+    go(b.dataset.view);
+  });
+  function go(name) {
+    document.querySelectorAll("#nav button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === name); });
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
+    location.hash = name;
+    if (name === "overview") renderOverview();
+    if (name === "customers") renderCustomers();
+    if (name === "accounts") initAccounts();
+    if (name === "transfer") loadTransferHelp();
+  }
+
+  /* ---------------- health ---------------- */
+  function pingHealth() {
+    fetch("/actuator/health").then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        var up = res.ok && (!res.j.status || res.j.status === "UP");
+        document.getElementById("healthDot").className = "dot " + (up ? "up" : "down");
+        document.getElementById("healthText").textContent = up ? "API healthy" : "API degraded";
+      })
+      .catch(function () {
+        document.getElementById("healthDot").className = "dot down";
+        document.getElementById("healthText").textContent = "API unreachable";
+      });
+  }
+
+  /* ---------------- data loaders ---------------- */
+  function loadCustomers() { return api("/customers"); }
+  function loadAccountsFor(customerId) { return api("/accounts?customerId=" + encodeURIComponent(customerId)); }
+
+  function loadAllAccounts() {
+    return loadCustomers().then(function (custs) {
+      return Promise.all(custs.map(function (c) {
+        return loadAccountsFor(c.id).then(function (accts) {
+          return accts.map(function (a) { return Object.assign({}, a, { _customer: c }); });
+        });
+      })).then(function (lists) {
+        var flat = []; lists.forEach(function (l) { flat = flat.concat(l); });
+        return { customers: custs, accounts: flat };
+      });
+    });
+  }
+
+  /* ---------------- overview ---------------- */
+  function renderOverview() {
+    var host = document.getElementById("overviewTable");
+    host.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    loadAllAccounts().then(function (d) {
+      var open = d.accounts.filter(function (a) { return a.status !== "CLOSED"; });
+      var total = open.reduce(function (s, a) { return s + Number(a.balance || 0); }, 0);
+      document.getElementById("stCustomers").textContent = d.customers.length;
+      document.getElementById("stAccounts").textContent = d.accounts.length;
+      document.getElementById("stAccountsSub").textContent =
+        open.filter(function (a) { return a.status === "ACTIVE"; }).length + " active · " +
+        d.accounts.filter(function (a) { return a.status === "FROZEN"; }).length + " frozen";
+      document.getElementById("stBalance").textContent = money(total, open[0] && open[0].currency);
+      document.getElementById("stAvg").textContent = open.length ? money(total / open.length, open[0].currency) : money(0);
+
+      if (!d.accounts.length) { host.innerHTML = '<div class="empty">No accounts yet.</div>'; return; }
+      var rows = d.accounts.slice().sort(function (a, b) { return Number(b.balance) - Number(a.balance); });
+      var t = el("table", {}, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "Account" }), el("th", { text: "Holder" }), el("th", { text: "Type" }),
+          el("th", { text: "Status" }), el("th", { class: "num", text: "Balance" })
+        ])]),
+        el("tbody", {}, rows.map(function (a) {
+          return el("tr", {}, [
+            el("td", { class: "mono", text: a.accountNumber }),
+            el("td", {}, [a._customer.firstName + " " + a._customer.lastName]),
+            el("td", { class: "muted", text: a.type }),
+            el("td", {}, [badge(a.status)]),
+            el("td", { class: "num", text: money(a.balance, a.currency) })
+          ]);
+        }))
+      ]);
+      host.innerHTML = ""; host.appendChild(t);
+    }).catch(function (e) { host.innerHTML = ""; handle(e); });
+  }
+  document.getElementById("refreshOverview").addEventListener("click", renderOverview);
+
+  /* ---------------- customers ---------------- */
+  function renderCustomers() {
+    var host = document.getElementById("customerTable");
+    host.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    loadCustomers().then(function (list) {
+      document.getElementById("customerCount").textContent = list.length + (list.length === 1 ? " record" : " records");
+      if (!list.length) { host.innerHTML = '<div class="empty">No customers yet. Create the first one.</div>'; return; }
+      var t = el("table", {}, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "Name" }), el("th", { text: "Email" }), el("th", { text: "Phone" }),
+          el("th", { text: "Since" }), el("th", { class: "num", text: "" })
+        ])]),
+        el("tbody", {}, list.map(function (c) {
+          return el("tr", {}, [
+            el("td", {}, [el("b", { text: c.firstName + " " + c.lastName })]),
+            el("td", { class: "muted", text: c.email }),
+            el("td", { class: "muted", text: c.phone || "—" }),
+            el("td", { class: "muted", text: fmtDate(c.createdAt) }),
+            el("td", { class: "num" }, [el("div", { class: "row-actions" }, [
+              el("button", { class: "btn btn-ghost btn-sm", text: "Accounts", onclick: function () { go("accounts"); setTimeout(function () { selectAccountCustomer(c.id); }, 60); } }),
+              el("button", { class: "btn btn-ghost btn-sm", text: "Edit", onclick: function () { customerModal(c); } }),
+              el("button", { class: "btn btn-danger btn-sm", text: "Delete", onclick: function () { deleteCustomer(c); } })
+            ])])
+          ]);
+        }))
+      ]);
+      host.innerHTML = ""; host.appendChild(t);
+    }).catch(function (e) { host.innerHTML = ""; handle(e); });
+  }
+
+  function deleteCustomer(c) {
+    confirmModal("Delete customer", "Remove " + c.firstName + " " + c.lastName + "? Accounts must be closed first.", function () {
+      return api("/customers/" + c.id, { method: "DELETE" }).then(function () {
+        toast("Customer deleted"); renderCustomers();
+      });
+    });
+  }
+
+  document.getElementById("newCustomerBtn").addEventListener("click", function () { customerModal(null); });
+
+  function customerModal(existing) {
+    var isEdit = !!existing;
+    var form = el("form", { id: "custForm" }, [
+      el("div", { class: "form-row" }, [
+        field("firstName", "First name", { value: existing ? existing.firstName : "", required: true }),
+        field("lastName", "Last name", { value: existing ? existing.lastName : "", required: true })
+      ]),
+      field("email", "Email", { value: existing ? existing.email : "", type: "email", required: true }),
+      field("phone", "Phone", { value: existing && existing.phone ? existing.phone : "", placeholder: "optional" })
+    ]);
+    openModal(isEdit ? "Edit customer" : "New customer", form, function (done) {
+      var body = formData(form);
+      var req = isEdit ? api("/customers/" + existing.id, { method: "PUT", body: body })
+                       : api("/customers", { method: "POST", body: body });
+      req.then(function () {
+        toast(isEdit ? "Customer updated" : "Customer created", body.firstName + " " + body.lastName);
+        closeModal(); renderCustomers();
+      }).catch(function (e) { handle(e, form); done(); });
+    });
+  }
+
+  /* ---------------- accounts ---------------- */
+  var accountsInited = false;
+  function initAccounts() {
+    var sel = document.getElementById("acctCustomer");
+    loadCustomers().then(function (list) {
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">Select a customer…</option>';
+      list.forEach(function (c) {
+        sel.appendChild(el("option", { value: c.id, text: c.firstName + " " + c.lastName + " · " + c.email }));
+      });
+      if (cur) sel.value = cur;
+    }).catch(handle);
+    if (accountsInited) return;
+    accountsInited = true;
+    sel.addEventListener("change", function () {
+      document.getElementById("openAccountBtn").disabled = !sel.value;
+      if (sel.value) renderAccounts(sel.value); else document.getElementById("accountTable").innerHTML = '<div class="empty">Pick a customer to see their accounts.</div>';
+    });
+    document.getElementById("openAccountBtn").addEventListener("click", function () { openAccountModal(sel.value); });
+  }
+  function selectAccountCustomer(id) {
+    var sel = document.getElementById("acctCustomer");
+    sel.value = String(id);
+    document.getElementById("openAccountBtn").disabled = !sel.value;
+    if (sel.value) renderAccounts(sel.value);
+  }
+
+  function renderAccounts(customerId) {
+    var host = document.getElementById("accountTable");
+    host.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    loadAccountsFor(customerId).then(function (list) {
+      if (!list.length) { host.innerHTML = '<div class="empty">No accounts for this customer yet.</div>'; return; }
+      var t = el("table", {}, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "Account" }), el("th", { text: "Type" }), el("th", { text: "Status" }),
+          el("th", { class: "num", text: "Balance" }), el("th", { class: "num", text: "" })
+        ])]),
+        el("tbody", {}, list.map(function (a) {
+          return el("tr", {}, [
+            el("td", { class: "mono", text: a.accountNumber }),
+            el("td", { class: "muted", text: a.type }),
+            el("td", {}, [badge(a.status)]),
+            el("td", { class: "num", text: money(a.balance, a.currency) }),
+            el("td", { class: "num" }, [el("div", { class: "row-actions" }, [
+              el("button", { class: "btn btn-ghost btn-sm", text: "Deposit", onclick: function () { moneyModal("deposit", a); } }),
+              el("button", { class: "btn btn-ghost btn-sm", text: "Withdraw", onclick: function () { moneyModal("withdraw", a); } }),
+              el("button", { class: "btn btn-ghost btn-sm", text: "Statement", onclick: function () { statementDrawer(a); } }),
+              statusButton(a)
+            ])])
+          ]);
+        }))
+      ]);
+      host.innerHTML = ""; host.appendChild(t);
+    }).catch(function (e) { host.innerHTML = ""; handle(e); });
+  }
+
+  function statusButton(a) {
+    var next = a.status === "ACTIVE" ? "FROZEN" : "ACTIVE";
+    var label = a.status === "ACTIVE" ? "Freeze" : (a.status === "FROZEN" ? "Activate" : "Closed");
+    var b = el("button", { class: "btn btn-sm " + (a.status === "CLOSED" ? "btn-ghost" : "btn-danger"), text: label });
+    if (a.status === "CLOSED") { b.disabled = true; return b; }
+    b.addEventListener("click", function () {
+      api("/accounts/" + a.accountNumber + "/status?status=" + next, { method: "POST" })
+        .then(function () { toast("Account " + next.toLowerCase()); renderAccounts(document.getElementById("acctCustomer").value); })
+        .catch(handle);
+    });
+    return b;
+  }
+
+  function openAccountModal(customerId) {
+    var form = el("form", { id: "acctForm" }, [
+      selectField("type", "Account type", ["CHECKING", "SAVINGS"]),
+      field("openingBalance", "Opening balance", { type: "number", value: "0.00", min: "0", step: "0.01", required: true })
+    ]);
+    openModal("Open account", form, function (done) {
+      var d = formData(form);
+      api("/accounts", { method: "POST", body: { customerId: Number(customerId), type: d.type, openingBalance: d.openingBalance } })
+        .then(function (created) {
+          toast("Account opened", created.accountNumber + " · " + money(created.balance, created.currency));
+          closeModal(); renderAccounts(customerId);
+        }).catch(function (e) { handle(e, form); done(); });
+    });
+  }
+
+  function moneyModal(kind, a) {
+    var form = el("form", { id: "mvForm" }, [
+      el("p", { class: "muted", style: "margin:0 0 14px;font-size:13px", text: (kind === "deposit" ? "Deposit into " : "Withdraw from ") + a.accountNumber + " — balance " + money(a.balance, a.currency) }),
+      field("amount", "Amount", { type: "number", min: "0.01", step: "0.01", required: true, placeholder: "0.00" }),
+      field("description", "Description", { placeholder: "optional", maxlength: "140" })
+    ]);
+    openModal(kind === "deposit" ? "Deposit" : "Withdraw", form, function (done) {
+      var d = formData(form);
+      api("/accounts/" + a.accountNumber + "/" + (kind === "deposit" ? "deposits" : "withdrawals"), { method: "POST", body: { amount: d.amount, description: d.description || null } })
+        .then(function (tx) {
+          toast(kind === "deposit" ? "Deposit posted" : "Withdrawal posted", money(tx.amount, a.currency) + " · new balance " + money(tx.balanceAfter, a.currency));
+          closeModal(); renderAccounts(document.getElementById("acctCustomer").value);
+        }).catch(function (e) { handle(e, form); done(); });
+    });
+  }
+
+  function statementDrawer(a, page) {
+    page = page || 0;
+    var host = el("div", {}, [el("div", { class: "empty" }, [el("span", { class: "spinner" })])]);
+    openModal("Statement · " + a.accountNumber, host, null, true);
+    api("/accounts/" + a.accountNumber + "/transactions?page=" + page + "&size=10").then(function (pg) {
+      host.innerHTML = "";
+      if (!pg.content.length) { host.appendChild(el("div", { class: "empty", text: "No transactions." })); return; }
+      host.appendChild(el("table", {}, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "When" }), el("th", { text: "Type" }), el("th", { class: "num", text: "Amount" }),
+          el("th", { class: "num", text: "Balance" }), el("th", { text: "Note" })
+        ])]),
+        el("tbody", {}, pg.content.map(function (tx) {
+          var sign = (tx.type === "WITHDRAWAL" || tx.type === "TRANSFER_OUT") ? "−" : "+";
+          return el("tr", {}, [
+            el("td", { class: "muted", text: fmtDateTime(tx.createdAt) }),
+            el("td", {}, [badge(tx.type)]),
+            el("td", { class: "num", text: sign + money(tx.amount, a.currency).replace(/^[^\d-]*/, "") }),
+            el("td", { class: "num", text: money(tx.balanceAfter, a.currency) }),
+            el("td", { class: "muted", text: tx.description || (tx.counterpartyAccountNumber ? "↔ " + tx.counterpartyAccountNumber : "—") })
+          ]);
+        }))
+      ]));
+      host.appendChild(el("div", { class: "pager" }, [
+        el("span", { text: "Page " + (pg.page + 1) + " of " + Math.max(1, pg.totalPages) + " · " + pg.totalElements + " total" }),
+        el("button", { class: "btn btn-ghost btn-sm", text: "Prev", disabled: pg.page === 0 ? "disabled" : null, onclick: function () { statementDrawer(a, page - 1); } }),
+        el("button", { class: "btn btn-ghost btn-sm", text: "Next", disabled: pg.last ? "disabled" : null, onclick: function () { statementDrawer(a, page + 1); } })
+      ]));
+    }).catch(function (e) { host.innerHTML = ""; handle(e); });
+  }
+
+  /* ---------------- transfer ---------------- */
+  function loadTransferHelp() {
+    var list = document.getElementById("tfDatalist");
+    if (!list) {
+      list = el("datalist", { id: "tfDatalist" });
+      document.body.appendChild(list);
+      document.getElementById("tfFrom").setAttribute("list", "tfDatalist");
+      document.getElementById("tfTo").setAttribute("list", "tfDatalist");
+    }
+    loadAllAccounts().then(function (d) {
+      list.innerHTML = "";
+      d.accounts.forEach(function (a) {
+        list.appendChild(el("option", { value: a.accountNumber, text: a._customer.firstName + " " + a._customer.lastName + " · " + money(a.balance, a.currency) }));
+      });
+    }).catch(function () {});
+  }
+
+  document.getElementById("transferForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = e.target;
+    var d = formData(form);
+    var btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    api("/transfers", { method: "POST", body: { fromAccountNumber: d.fromAccountNumber, toAccountNumber: d.toAccountNumber, amount: d.amount, description: d.description || null } })
+      .then(function (tx) {
+        toast("Transfer sent", money(tx.amount) + " from " + d.fromAccountNumber + " → " + d.toAccountNumber);
+        form.reset();
+        form.querySelectorAll("[data-err]").forEach(function (n) { n.textContent = ""; });
+      })
+      .catch(function (err) { handle(err, form); })
+      .then(function () { btn.disabled = false; });
+  });
+
+  /* ---------------- form utilities ---------------- */
+  function field(name, label, opts) {
+    opts = opts || {};
+    var input = el("input", { name: name });
+    ["type", "value", "placeholder", "min", "step", "maxlength"].forEach(function (k) { if (opts[k] != null) input.setAttribute(k, opts[k]); });
+    if (opts.required) input.required = true;
+    return el("div", { class: "field" }, [
+      el("label", { text: label }), input, el("div", { class: "err", "data-err": name })
+    ]);
+  }
+  function selectField(name, label, options) {
+    var sel = el("select", { name: name }, options.map(function (o) { return el("option", { value: o, text: o.charAt(0) + o.slice(1).toLowerCase() }); }));
+    return el("div", { class: "field" }, [el("label", { text: label }), sel, el("div", { class: "err", "data-err": name })]);
+  }
+  function formData(form) {
+    var o = {};
+    new FormData(form).forEach(function (v, k) { o[k] = typeof v === "string" ? v.trim() : v; });
+    return o;
+  }
+
+  /* ---------------- modal ---------------- */
+  var overlay = document.getElementById("overlay");
+  function openModal(title, contentNode, onSubmit, isDrawer) {
+    overlay.innerHTML = "";
+    var footer = null;
+    if (onSubmit) {
+      var submitBtn = el("button", { class: "btn btn-primary", text: "Save" });
+      footer = el("footer", {}, [
+        el("button", { class: "btn btn-ghost", text: "Cancel", onclick: closeModal }),
+        submitBtn
+      ]);
+      submitBtn.addEventListener("click", function () {
+        submitBtn.disabled = true;
+        onSubmit(function () { submitBtn.disabled = false; });
+      });
+    }
+    var modal = el("div", { class: "modal" + (isDrawer ? " drawer" : "") }, [
+      el("header", {}, [el("h3", { text: title }), el("button", { class: "icon-btn", html: "&times;", onclick: closeModal })]),
+      el("div", { class: "content" }, [contentNode]),
+      footer
+    ]);
+    overlay.appendChild(modal);
+    overlay.classList.add("open");
+    var first = modal.querySelector("input, select");
+    if (first) setTimeout(function () { first.focus(); }, 40);
+  }
+  function closeModal() { overlay.classList.remove("open"); overlay.innerHTML = ""; }
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
+
+  function confirmModal(title, msg, onYes) {
+    openModal(title, el("p", { style: "margin:0;font-size:14px;color:var(--ink-soft)", text: msg }), function (done) {
+      Promise.resolve().then(onYes).then(closeModal).catch(function (e) { handle(e); done(); });
+    });
+    var btn = overlay.querySelector("footer .btn-primary");
+    btn.textContent = "Confirm";
+    btn.classList.remove("btn-primary"); btn.classList.add("btn-danger");
+  }
+
+  /* ---------------- boot ---------------- */
+  pingHealth();
+  setInterval(pingHealth, 30000);
+  var start = (location.hash || "#overview").slice(1);
+  if (!document.getElementById("view-" + start)) start = "overview";
+  go(start);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Local end-to-end run: MySQL + the banking app.
+#   mvn -DskipTests package && docker compose up --build
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: bankapp
+      MYSQL_USER: bankapp
+      MYSQL_PASSWORD: bankapp
+      MYSQL_ROOT_PASSWORD: rootpw
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpw"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        JAR_FILE: target/bankapp.jar
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/bankapp
+      DB_USERNAME: bankapp
+      DB_PASSWORD: bankapp
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

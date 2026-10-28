@@ -1,0 +1,64 @@
+### Banking API - sample requests (IntelliJ HTTP client / VS Code REST Client)
+@host = http://localhost:8080
+
+### Health
+GET {{host}}/actuator/health
+
+### Create a customer
+POST {{host}}/api/v1/customers
+Content-Type: application/json
+
+{
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "email": "ada@example.com",
+  "phone": "555-0101"
+}
+
+### List customers
+GET {{host}}/api/v1/customers
+
+### Open an account (use the customer id from the create response)
+POST {{host}}/api/v1/accounts
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "type": "CHECKING",
+  "openingBalance": 250.00
+}
+
+### Get an account
+GET {{host}}/api/v1/accounts/ACCOUNT_NUMBER
+
+### List a customer's accounts
+GET {{host}}/api/v1/accounts?customerId=1
+
+### Deposit
+POST {{host}}/api/v1/accounts/ACCOUNT_NUMBER/deposits
+Content-Type: application/json
+
+{ "amount": 100.00, "description": "paycheck" }
+
+### Withdraw
+POST {{host}}/api/v1/accounts/ACCOUNT_NUMBER/withdrawals
+Content-Type: application/json
+
+{ "amount": 40.00, "description": "atm" }
+
+### Transfer
+POST {{host}}/api/v1/transfers
+Content-Type: application/json
+
+{
+  "fromAccountNumber": "FROM_ACCOUNT",
+  "toAccountNumber": "TO_ACCOUNT",
+  "amount": 25.00,
+  "description": "rent split"
+}
+
+### Account statement (paged)
+GET {{host}}/api/v1/accounts/ACCOUNT_NUMBER/transactions?page=0&size=20
+
+### Freeze an account
+POST {{host}}/api/v1/accounts/ACCOUNT_NUMBER/status?status=FROZEN

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings for the Jenkins build.
+  Load into Jenkins via "Managed files" (Config File Provider plugin) with
+  id "nexus-maven-settings".
+
+  Credentials come from the NX_USER / NX_PASS environment variables, which the
+  Jenkinsfile binds from the 'nexus-cred' credential (withCredentials) around
+  every mvn invocation. Do NOT commit real passwords here.
+
+  Server ids:
+    nexus            - the mirror below (dependency downloads)
+    nexus-releases   - distributionManagement release repo  (pom.xml)
+    nexus-snapshots  - distributionManagement snapshot repo (pom.xml)
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <servers>
+    <server>
+      <id>nexus</id>
+      <username>${env.NX_USER}</username>
+      <password>${env.NX_PASS}</password>
+    </server>
+    <server>
+      <id>nexus-releases</id>
+      <username>${env.NX_USER}</username>
+      <password>${env.NX_PASS}</password>
+    </server>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>${env.NX_USER}</username>
+      <password>${env.NX_PASS}</password>
+    </server>
+  </servers>
+
+  <mirrors>
+    <mirror>
+      <id>nexus</id>
+      <name>Nexus Public Mirror</name>
+      <url>https://nexus.everythingops.io/repository/maven-public/</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
