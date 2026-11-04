@@ -1,0 +1,8 @@
+# Approved exceptions for the Trivy gate.
+# Every entry needs a matching row in security/EXCEPTIONS.md and an exp: date.
+# After that date the entry stops applying and the build fails again.
+#
+# Example:
+#
+# EX-001. Owner: name. Why: reason. Jira: CT-00.
+# CVE-0000-00000 exp:2026-12-15
