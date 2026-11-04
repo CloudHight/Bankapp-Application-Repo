@@ -122,7 +122,15 @@ Pipeline, Git, **SonarQube Scanner**, **Config File Provider**, **Docker Pipelin
 | `sonarqube` server | Manage Jenkins → System → SonarQube servers | matches `SONARQUBE_ENV` |
 | `nexus-maven-settings` | Managed files (Config File Provider) | paste `ci/settings.xml` verbatim; point URLs at your Nexus |
 | `nexus-cred` | Credential (username/password) | Nexus login — Maven repo (bound to `NX_USER`/`NX_PASS`) and Docker registry |
-| `nvd-key` | Credential (secret text), required | NVD API key for the OWASP Dependency-Check download; the build stops if it is missing |
+| `nvd-key` | Credential (secret text), required | NVD API key for the OWASP Dependency-Check download; the build stops if it is missing. See below. |
+
+#### Set up the `nvd-key` credential
+
+1. Request a free API key from the [NVD website](https://nvd.nist.gov/developers/request-an-api-key). NVD emails you a link to activate it.
+2. In Jenkins, go to **Manage Jenkins → Credentials** and add a new credential.
+3. Set **Kind** to **Secret text**, **Secret** to your API key and **ID** to `nvd-key`. The ID must match exactly.
+
+Keep the key in Jenkins only. Never commit it to the repo.
 
 Set `NEXUS_DOCKER_REGISTRY` in the `Jenkinsfile` and `nexus.url` in `pom.xml` for
 your environment. SNAPSHOT vs release is chosen by `project.version`.
