@@ -1,9 +1,13 @@
 // bankapp application pipeline (declarative).
 //
 //  Checkout ─► SonarQube + Quality Gate ─► OWASP Dependency-Check ─►
-//  Build & Unit Test ─► Publish JAR to Nexus ─► Build Docker image ─►
-//  Trivy scan ─► Push image to Nexus ─►
+//  Build & Unit Test ─► Build Docker image ─► Trivy scan ─►
+//  Publish JAR to Nexus ─► Push image to Nexus ─►
 //  Deploy to Stage ─► DAST (OWASP ZAP baseline) ─► [manual approval] ─► Deploy to Prod.
+//
+// Security gates: a HIGH or CRITICAL finding from Dependency-Check or Trivy fails the build
+// before anything is published, unless an approved, unexpired exception exists.
+// See security/EXCEPTIONS.md.
 //
 // Deploy is done by Ansible on the team-1 Ansible server, started through SSM Run Command
 // (Jenkins and the app servers are in different VPCs, so there is no SSH path). The playbook
@@ -44,14 +48,14 @@ pipeline {
         IMAGE_NAME            = 'bankapp'
         TRIVY_SEVERITY        = 'HIGH,CRITICAL'
         TRIVY_CACHE_DIR       = '/var/lib/jenkins/trivy-cache'   // persists across cleanWs()
-        DC_FAIL_CVSS          = '11'                     // Dependency-Check: 11 = report-only, 7 = fail on HIGH+
+        DC_FAIL_CVSS          = '7'                      // Dependency-Check: fail on CVSS 7.0+ (HIGH and CRITICAL)
 
         // Deploy targets, looked up at deploy time (no IPs or endpoints hard-coded)
         AWS_REGION            = 'eu-west-3'
         ANSIBLE_SERVER_NAME   = 'team-1-ansible-server'  // Name tag of the Ansible server
         SCRIPTS_BUCKET_PREFIX = 'team-1-ansible-scripts' // + "-<account id>": holds deploy-bankapp.yml
         DB_INSTANCE           = 'team-1-db'              // RDS instance; endpoint + managed secret read from it
-        NVD_API_KEY            = credentials('nvd-key')  // optional: speeds up OWASP Dependency-Check
+        NVD_API_KEY            = credentials('nvd-key')  // required: the build stops if this credential is missing
         // DAST - URL of the app as deployed on the stage hosts
         STAGE_APP_URL         = 'https://stage.everythingops.io'   // stage ALB (TLS on 443; 8080 is not exposed)
         ZAP_IMAGE             = 'ghcr.io/zaproxy/zaproxy:stable'
@@ -98,11 +102,11 @@ pipeline {
 
         stage('OWASP Dependency-Check') {
             steps {
-                // Set NVD_API_KEY as a Jenkins global env var to speed up the NVD
-                // download. Without it the first run can take longer than the
-                // pipeline timeout; later runs reuse the NVD data cached in ~/.m2.
-                // Report-only like Trivy: DC_FAIL_CVSS=11 never fails on findings
-                // (lower it to 7 to gate on HIGH/CRITICAL once dependencies are updated).
+                // The NVD API key (Jenkins credential 'nvd-key') speeds up the NVD
+                // download; later runs reuse the NVD data cached in ~/.m2.
+                // Security gate: fails on CVSS >= DC_FAIL_CVSS. Approved exceptions
+                // live in security/dependency-check-suppressions.xml and stop applying
+                // on their expiry date.
                 withCredentials([usernamePassword(credentialsId: env.NEXUS_DOCKER_CREDS,
                                                   usernameVariable: 'NX_USER', passwordVariable: 'NX_PASS')]) {
                     configFileProvider([configFile(fileId: "${MAVEN_SETTINGS}", variable: 'SETTINGS')]) {
@@ -131,16 +135,6 @@ pipeline {
                 jacoco execPattern: 'target/jacoco.exec'
             }
         }
-        stage('Publish JAR to Nexus') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: env.NEXUS_DOCKER_CREDS,
-                                                  usernameVariable: 'NX_USER', passwordVariable: 'NX_PASS')]) {
-                    configFileProvider([configFile(fileId: "${MAVEN_SETTINGS}", variable: 'SETTINGS')]) {
-                        sh 'mvn -B -s $SETTINGS deploy -DskipTests'
-                    }
-                }
-            }
-        }
 
         stage('Build Docker image') {
             steps {
@@ -160,16 +154,43 @@ pipeline {
         stage('Trivy scan') {
             steps {
                 sh 'df -h / | tail -1'
-                // Report-only: surface HIGH/CRITICAL findings in the log but do not
-                // fail the build on them (--exit-code 0). Tighten to --exit-code 1
-                // once the dependency tree is clean.
+                // Security gate: HIGH/CRITICAL findings fail the build. Findings with
+                // no fix available count too, so they need a fix or an exception.
+                // Approved exceptions live in .trivyignore and stop applying on their
+                // expiry date.
+                // First run: readable report (never fails, so it is always written).
+                // Second run: JSON report and the gate (--exit-code 1).
                 sh '''
                     mkdir -p "$TRIVY_CACHE_DIR"
-                    trivy image --scanners vuln --no-progress --ignore-unfixed \
-                      --cache-dir "$TRIVY_CACHE_DIR" \
-                      --severity $TRIVY_SEVERITY --exit-code 0 \
+                    TRIVY_OPTS="--scanners vuln --no-progress --cache-dir $TRIVY_CACHE_DIR --ignorefile .trivyignore --severity $TRIVY_SEVERITY"
+
+                    trivy image $TRIVY_OPTS --exit-code 0 \
+                      --format table --output trivy-report.txt \
+                      $IMAGE_NAME:$IMAGE_TAG
+                    cat trivy-report.txt
+
+                    trivy image $TRIVY_OPTS --exit-code 1 \
+                      --format json --output trivy-report.json \
                       $IMAGE_NAME:$IMAGE_TAG
                 '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.*', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // Runs only after Dependency-Check and Trivy have both passed, so a build
+        // that fails a security gate never reaches Nexus.
+        stage('Publish JAR to Nexus') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: env.NEXUS_DOCKER_CREDS,
+                                                  usernameVariable: 'NX_USER', passwordVariable: 'NX_PASS')]) {
+                    configFileProvider([configFile(fileId: "${MAVEN_SETTINGS}", variable: 'SETTINGS')]) {
+                        sh 'mvn -B -s $SETTINGS deploy -DskipTests'
+                    }
+                }
             }
         }
 

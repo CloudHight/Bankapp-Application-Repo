@@ -5,7 +5,7 @@ Jenkins CI/CD pipeline:
 
 ```
 checkout ─► build & test ─► SonarQube + gate ─► OWASP Dependency-Check
-        ─► JAR to Nexus ─► docker build ─► Trivy scan ─► image to Nexus
+        ─► docker build ─► Trivy scan ─► JAR to Nexus ─► image to Nexus
 ```
 
 Single repo. The pipeline produces a scanned, published artifact (JAR + image in
@@ -94,12 +94,16 @@ non‑ACTIVE accounts (HTTP 409).
 | Checkout | `checkout scm`; resolve `APP_VERSION` / `IMAGE_TAG` from `pom.xml` |
 | Build & Unit Test | `mvn -s settings clean verify` (JAR + JUnit + JaCoCo) |
 | SonarQube Analysis + Quality Gate | `withSonarQubeEnv` + `mvn sonar:sonar`, `waitForQualityGate abortPipeline: true` |
-| OWASP Dependency-Check | `mvn dependency-check:check` — report-only (`DC_FAIL_CVSS=11`; set 7 to fail on HIGH+), HTML report published |
-| Publish JAR to Nexus | `mvn -s settings deploy` → `maven-releases` / `maven-snapshots` |
+| OWASP Dependency-Check | `mvn dependency-check:check` — fails the build on CVSS 7.0 or higher (`DC_FAIL_CVSS=7`), HTML and XML reports published |
 | Build Docker image | `docker build -t bankapp:$IMAGE_TAG .` |
-| Trivy scan | `trivy image --severity HIGH,CRITICAL --exit-code 1` — fails the build on findings |
+| Trivy scan | `trivy image --severity HIGH,CRITICAL --exit-code 1` — fails the build on findings, including those with no fix available; text and JSON reports archived |
+| Publish JAR to Nexus | `mvn -s settings deploy` → `maven-releases` / `maven-snapshots` (only after both security gates pass) |
 | Push image to Nexus | tag + `docker push` to the Nexus docker (hosted) registry (`$IMAGE_TAG` and `latest`) |
 | DAST - OWASP ZAP baseline | after Deploy to Stage: waits for `/actuator/health`, runs `zap-baseline.py` against `STAGE_APP_URL`; findings mark the build UNSTABLE, HTML report published |
+
+### Security gates
+
+A High or Critical finding from Dependency-Check or Trivy stops the release unless an approved, time-limited exception exists. See [security/EXCEPTIONS.md](security/EXCEPTIONS.md) for the process and the register.
 
 ### Agent requirements
 
@@ -118,7 +122,15 @@ Pipeline, Git, **SonarQube Scanner**, **Config File Provider**, **Docker Pipelin
 | `sonarqube` server | Manage Jenkins → System → SonarQube servers | matches `SONARQUBE_ENV` |
 | `nexus-maven-settings` | Managed files (Config File Provider) | paste `ci/settings.xml` verbatim; point URLs at your Nexus |
 | `nexus-cred` | Credential (username/password) | Nexus login — Maven repo (bound to `NX_USER`/`NX_PASS`) and Docker registry |
-| `NVD_API_KEY` | Global env var (optional) | speeds up the OWASP NVD download |
+| `nvd-key` | Credential (secret text), required | NVD API key for the OWASP Dependency-Check download; the build stops if it is missing. See below. |
+
+#### Set up the `nvd-key` credential
+
+1. Request a free API key from the [NVD website](https://nvd.nist.gov/developers/request-an-api-key). NVD emails you a link to activate it.
+2. In Jenkins, go to **Manage Jenkins → Credentials** and add a new credential.
+3. Set **Kind** to **Secret text**, **Secret** to your API key and **ID** to `nvd-key`. The ID must match exactly.
+
+Keep the key in Jenkins only. Never commit it to the repo.
 
 Set `NEXUS_DOCKER_REGISTRY` in the `Jenkinsfile` and `nexus.url` in `pom.xml` for
 your environment. SNAPSHOT vs release is chosen by `project.version`.
