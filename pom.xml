@@ -184,6 +184,10 @@
                     <skipProvidedScope>true</skipProvidedScope>
                     <!-- Sonatype OSS Index now requires an account; NVD data is enough -->
                     <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+                    <!-- Approved, time-limited exceptions: see security/EXCEPTIONS.md -->
+                    <suppressionFiles>
+                        <suppressionFile>${project.basedir}/security/dependency-check-suppressions.xml</suppressionFile>
+                    </suppressionFiles>
                     <formats>
                         <format>HTML</format>
                         <format>XML</format>
