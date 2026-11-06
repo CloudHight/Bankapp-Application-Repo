@@ -1,0 +1,17 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Trivy Secret Scan') {
+            steps {
+                sh 'trivy fs --scanners secret --exit-code 1 .'
+            }
+        }
+    }
+}
