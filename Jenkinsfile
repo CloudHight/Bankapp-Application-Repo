@@ -214,6 +214,9 @@ pipeline {
         }
 
         stage('Staging Smoke Tests') {
+            environment {
+                SMOKE_ALLOWED_STAGE_URL = 'https://stage.everythingops.io'
+            }
             steps {
                 timeout(time: 8, unit: 'MINUTES') {
                     sh 'python3 scripts/smoke_test.py'

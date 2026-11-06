@@ -60,10 +60,15 @@ def check(name, action):
 
 
 def configuration():
-    # Prevent these data-creating tests from targeting production.
+    approved_url = os.environ.get("SMOKE_ALLOWED_STAGE_URL", "").rstrip("/")
+
     require(
-        BASE_URL == "https://stage.everythingops.io",
-        "STAGE_APP_URL must be https://stage.everythingops.io",
+        bool(BASE_URL) and bool(approved_url),
+        "Set STAGE_APP_URL and SMOKE_ALLOWED_STAGE_URL",
+    )
+    require(
+        BASE_URL == approved_url,
+        "Target URL does not match the approved staging URL",
     )
 
 
