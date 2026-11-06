@@ -213,6 +213,26 @@ pipeline {
             }
         }
 
+        stage('Staging Smoke Tests') {
+            environment {
+                SMOKE_ALLOWED_STAGE_URL = 'https://stage.everythingops.io'
+            }
+            steps {
+                timeout(time: 8, unit: 'MINUTES') {
+                    sh 'python3 scripts/smoke_test.py'
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'smoke-test-results.xml',
+                          allowEmptyResults: false
+
+                    archiveArtifacts artifacts: 'smoke-test-results.xml',
+                                     allowEmptyArchive: false
+                }
+            }
+        }
+
         stage('DAST - OWASP ZAP baseline') {
             steps {
                 // Wait for the freshly deployed stage container to report healthy
