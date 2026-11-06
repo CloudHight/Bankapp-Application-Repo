@@ -10,7 +10,7 @@ pipeline {
 
         stage('Trivy Secret Scan') {
             steps {
-                sh 'trivy fs --scanners secret --skip-files "**/pom.xml" --exit-code 1 .'
+                sh 'trivy fs --scanners secret --skip-files "**/pom.xml" --exit-code 1 --debug .'
             }
         }
     }
