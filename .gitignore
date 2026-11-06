@@ -26,3 +26,8 @@ bin/
 
 ### Local secrets ###
 .env
+
+### Python cache and smoke-test results ###
+__pycache__/
+*.pyc
+smoke-test-results.xml
