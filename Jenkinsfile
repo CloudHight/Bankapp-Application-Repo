@@ -75,6 +75,14 @@ pipeline {
                 }
             }
         }
+        
+        // Secret-scanning checks are included in the CI pipeline.
+        stage('Secret Scanning') {
+            steps {
+                sh 'trivy fs --scanners secret --exit-code 1 .'
+            }
+        }
+            
 
         stage('SonarQube Analysis') {
             steps {
