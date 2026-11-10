@@ -101,9 +101,7 @@ def workflow():
     )
     customer_id = customer["id"]
 
-    saved_customer = request(
-        "GET", f"/api/v1/customers/{customer_id}"
-    )
+    saved_customer = request("GET", f"/api/v1/customers/{customer_id}")
     require(
         saved_customer["email"] == email,
         "Customer read-back mismatch",
@@ -152,6 +150,35 @@ def workflow():
         "Unexpected transactions on the new account",
     )
 
+    # Deposit only into the new account created by this run.
+    amount = Decimal("10.00")
+    deposit = request(
+        "POST",
+        f"/api/v1/accounts/{number}/deposits",
+        payload={"amount": float(amount), "description": "CT-47 smoke test"},
+    )
+
+    updated_account = request("GET", f"/api/v1/accounts/{number}")
+    require(
+        Decimal(str(updated_account["balance"])) == amount,
+        "Expected balance of 10.00 after the deposit",
+    )
+
+    updated_statement = request(
+        "GET",
+        f"/api/v1/accounts/{number}/transactions?page=0&size=20",
+    )
+    require(
+        updated_statement["totalElements"] == 1
+        and any(
+            tx["id"] == deposit["id"]
+            and tx["type"] == "DEPOSIT"
+            and Decimal(str(tx["amount"])) == amount
+            for tx in updated_statement["content"]
+        ),
+        "Expected exactly one transaction: the 10.00 deposit",
+    )
+
 
 def write_report():
     failures = sum(error is not None for _, _, error in results)
@@ -185,11 +212,10 @@ if __name__ == "__main__":
     try:
         check("Staging configuration", configuration)
         check("Application health", health)
-        check("Synthetic customer and zero-balance account", workflow)
+        check("Synthetic customer, account, and deposit", workflow)
     except Exception:
         exit_code = 1
     finally:
         write_report()
 
     sys.exit(exit_code)
-    
