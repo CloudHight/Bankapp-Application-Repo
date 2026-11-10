@@ -1,3 +1,4 @@
+
 # Local end-to-end run: MySQL + the banking app.
 #   mvn -DskipTests package && docker compose up --build
 services:
@@ -6,14 +7,14 @@ services:
     environment:
       MYSQL_DATABASE: bankapp
       MYSQL_USER: bankapp
-      MYSQL_PASSWORD: bankapp
-      MYSQL_ROOT_PASSWORD: rootpw
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     ports:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpw"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h localhost -u root --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -27,7 +28,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://mysql:3306/bankapp
       DB_USERNAME: bankapp
-      DB_PASSWORD: bankapp
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
     ports:
       - "8080:8080"
     depends_on:

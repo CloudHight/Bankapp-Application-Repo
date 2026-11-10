@@ -134,3 +134,46 @@ Keep the key in Jenkins only. Never commit it to the repo.
 
 Set `NEXUS_DOCKER_REGISTRY` in the `Jenkinsfile` and `nexus.url` in `pom.xml` for
 your environment. SNAPSHOT vs release is chosen by `project.version`.
+
+## Secure Local Database Configuration
+
+### Purpose
+
+Docker Compose is used to run BankApp and a local MySQL database for development and testing.
+
+Our AWS deployment uses Jenkins, Ansible, Amazon RDS, and AWS Secrets Manager instead. Docker Compose is not used for our AWS deployment.
+
+### What is a .env file?
+
+A `.env` file stores local environment variables, such as database passwords, outside the application configuration.
+
+The `.env` file is ignored by Git to prevent local credentials from being accidentally committed to GitHub.
+
+### How to configure your local database
+
+1. Clone the repository to your computer.
+2. Copy `.env.example` and rename the copy to `.env`.
+3. Open `.env` and replace the example values with your own strong local passwords:
+
+   ```dotenv
+   MYSQL_PASSWORD=your_own_local_password
+   MYSQL_ROOT_PASSWORD=your_own_local_root_password
+   ```
+
+4. Save the `.env` file. Do not commit or push this file to GitHub.
+5. Make sure Docker is running, then start the application and MySQL database:
+
+   ```bash
+   mvn -DskipTests package
+   docker compose up --build
+   ```
+
+Docker Compose reads the passwords from `.env` and passes them to the local MySQL database and BankApp.
+
+### Security Notes
+
+- Never commit `.env` or real database passwords to GitHub.
+- `.env.example` contains placeholders only and can be safely committed.
+- Use strong, unique passwords for local development.
+- AWS database credentials are managed separately through AWS Secrets Manager.
+- Changing `.env` does not automatically change passwords in an existing MySQL database.
