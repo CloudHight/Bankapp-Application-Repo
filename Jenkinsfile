@@ -54,7 +54,6 @@ pipeline {
         AWS_REGION            = 'eu-west-3'
         ANSIBLE_SERVER_NAME   = 'team-1-ansible-server'  // Name tag of the Ansible server
         SCRIPTS_BUCKET_PREFIX = 'team-1-ansible-scripts' // + "-<account id>": holds deploy-bankapp.yml
-        DB_INSTANCE           = 'team-1-db'              // RDS instance; endpoint + managed secret read from it
         NVD_API_KEY            = credentials('nvd-key')  // required: the build stops if this credential is missing
         // DAST - URL of the app as deployed on the stage hosts
         STAGE_APP_URL         = 'https://stage.everythingops.io'   // stage ALB (TLS on 443; 8080 is not exposed)
@@ -299,7 +298,10 @@ pipeline {
 // Run deploy-bankapp.yml on the Ansible server for one environment ('stage' or 'prod') through
 // SSM Run Command, wait for it, print Ansible's output and fail the stage if the playbook failed.
 def deployWithAnsible(String envName) {
-    withEnv(["DEPLOY_ENV=${envName}", "IMAGE_REF=${env.NEXUS_DOCKER_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"]) {
+    // One RDS instance per environment (CT-53/CT-54): bankapp-db-stage-19thoct / bankapp-db-prod-19thoct
+    withEnv(["DEPLOY_ENV=${envName}",
+             "DB_INSTANCE=bankapp-db-${envName}-19thoct",
+             "IMAGE_REF=${env.NEXUS_DOCKER_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"]) {
         sh '''
             set -eu
             ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
