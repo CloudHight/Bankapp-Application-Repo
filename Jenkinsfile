@@ -79,7 +79,7 @@ pipeline {
         // Secret-scanning checks are included in the CI pipeline.
         stage('Secret Scanning') {
             steps {
-                sh 'trivy fs --scanners secret --exit-code 1 .'
+                sh 'trivy fs --scanners secret --offline-scan --exit-code 1 .'
             }
         }
             
