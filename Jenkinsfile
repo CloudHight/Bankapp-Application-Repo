@@ -19,6 +19,14 @@
 //     the image that was tested on stage
 //   - release.json (commit, version, digest) and deployment-<env>.json are archived with the build
 //
+// CT-46 Automated rollback:
+//   - Before each deploy, the previous healthy release is read from the last successful build's
+//     deployment-<env>.json (Copy Artifact plugin) and archived as previous-<env>.json
+//   - After the deploy, /actuator/health must report UP within HEALTH_TRIES x 10 seconds
+//     (30 x 10s = 5 minutes), and on stage the CT-47 smoke test must pass
+//   - If the deploy or a check fails, the previous image_ref is redeployed automatically, checked
+//     again, recorded in rollback-<env>.json, and the build is marked FAILED
+//
 // Deploy is done by Ansible on the team-1 Ansible server, started through SSM Run Command
 // (Jenkins and the app servers are in different VPCs, so there is no SSH path). The playbook
 // deploy-bankapp.yml (DevSecOps repo, module/Ansible/scripts) pulls the image this pipeline
@@ -69,6 +77,10 @@ pipeline {
         // DAST - URL of the app as deployed on the stage hosts
         STAGE_APP_URL         = 'https://stage.everythingops.io'   // stage ALB (TLS on 443; 8080 is not exposed)
         ZAP_IMAGE             = 'ghcr.io/zaproxy/zaproxy:stable'
+
+        // CT-46 rollback
+        HEALTH_TRIES          = '30'   // health check timeout: 30 checks x 10 seconds = 5 minutes
+        PROD_APP_URL          = ''     // prod ALB URL, to be set by CT-28 (prod can't be verified without it)
     }
 
     stages {
@@ -309,7 +321,8 @@ json.dump({
 
         stage('Deploy to Stage') {
             steps {
-                deployWithAnsible('stage')
+                // Deploy, check health + smoke test, roll back automatically if anything fails (CT-46)
+                deployAndVerify('stage', env.STAGE_APP_URL)
             }
         }
 
@@ -367,8 +380,13 @@ json.dump({
 
         stage('Deploy to Prod') {
             steps {
-                // Same IMAGE_REF (same digest) that was deployed to stage
-                deployWithAnsible('prod')
+                script {
+                    if (!env.PROD_APP_URL) {
+                        error "PROD_APP_URL is not set (CT-28), so prod can't be health-checked or rolled back"
+                    }
+                }
+                // Same IMAGE_REF (same digest) that was deployed to stage, with automatic rollback (CT-46)
+                deployAndVerify('prod', env.PROD_APP_URL)
             }
         }
     }
@@ -391,15 +409,16 @@ json.dump({
 
 // Run deploy-bankapp.yml on the Ansible server for one environment ('stage' or 'prod') through
 // SSM Run Command, wait for it, print Ansible's output and fail the stage if the playbook failed.
-// It always deploys env.IMAGE_REF (registry/bankapp@sha256:...), never a tag, and records what it
-// deployed in deployment-<env>.json.
-def deployWithAnsible(String envName) {
-    withEnv(["DEPLOY_ENV=${envName}"]) {
+// It always deploys a digest reference (registry/bankapp@sha256:...), never a tag, and records
+// what it deployed in recordName (deployment-<env>.json, or deployment-<env>-rollback.json).
+def deployWithAnsible(String envName, String imageRef, String releaseId, String recordName) {
+    withEnv(["DEPLOY_ENV=${envName}", "DEPLOY_IMAGE_REF=${imageRef}",
+             "DEPLOY_RELEASE_ID=${releaseId}", "RECORD_FILE=${recordName}"]) {
         try {
             sh '''
                 set -eu
-                echo "Deploying $RELEASE_ID to $DEPLOY_ENV"
-                echo "Image: $IMAGE_REF"
+                echo "Deploying $DEPLOY_RELEASE_ID to $DEPLOY_ENV"
+                echo "Image: $DEPLOY_IMAGE_REF"
 
                 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
                 BUCKET="$SCRIPTS_BUCKET_PREFIX-$ACCOUNT_ID"
@@ -413,11 +432,11 @@ def deployWithAnsible(String envName) {
                 echo "Ansible server: $INSTANCE_ID"
 
                 # Command run as root on the Ansible server: fetch the current playbook, run it as ec2-user
-                CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}_hosts deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET"
+                CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}_hosts deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$DEPLOY_IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET"
                 python3 -c 'import json,sys; print(json.dumps({"commands": [sys.argv[1]], "executionTimeout": ["900"]}))' "$CMD" > ssm-params.json
 
                 COMMAND_ID=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$INSTANCE_ID" \
-                               --document-name AWS-RunShellScript --comment "bankapp $DEPLOY_ENV $RELEASE_ID" \
+                               --document-name AWS-RunShellScript --comment "bankapp $DEPLOY_ENV $DEPLOY_RELEASE_ID" \
                                --parameters file://ssm-params.json --query Command.CommandId --output text)
 
                 STATUS=Pending
@@ -438,23 +457,197 @@ import json, os, datetime
 e = os.environ
 json.dump({
     "environment":    e["DEPLOY_ENV"],
-    "release_id":     e["RELEASE_ID"],
+    "release_id":     e["DEPLOY_RELEASE_ID"],
+    "build_release":  e["RELEASE_ID"],
     "git_commit":     e["GIT_COMMIT_FULL"],
-    "image_digest":   e["IMAGE_DIGEST"],
-    "image_ref":      e["IMAGE_REF"],
+    "image_digest":   e["DEPLOY_IMAGE_REF"].split("@")[-1],
+    "image_ref":      e["DEPLOY_IMAGE_REF"],
     "ssm_command_id": e["COMMAND_ID"],
     "ansible_server": e["INSTANCE_ID"],
     "status":         e["STATUS"],
     "deployed_at":    datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     "build_url":      e["BUILD_URL"],
-}, open("deployment-" + e["DEPLOY_ENV"] + ".json", "w"), indent=2)
+}, open(e["RECORD_FILE"], "w"), indent=2)
 '
-                cat "deployment-$DEPLOY_ENV.json"
+                cat "$RECORD_FILE"
 
                 [ "$STATUS" = "Success" ]
             '''
         } finally {
-            archiveArtifacts artifacts: "deployment-${envName}.json", allowEmptyArchive: true, fingerprint: true
+            archiveArtifacts artifacts: recordName, allowEmptyArchive: true, fingerprint: true
         }
+    }
+}
+
+// ==========================================================
+// CT-46: automated rollback
+// ==========================================================
+
+// Deploy one environment, then verify it. If the deploy, the health check or the smoke
+// test fails, roll back to the previous healthy release automatically.
+def deployAndVerify(String envName, String appUrl) {
+    def previous = recordPreviousRelease(envName)   // AC1: recorded BEFORE deploying
+    try {
+        deployWithAnsible(envName, env.IMAGE_REF, env.RELEASE_ID, "deployment-${envName}.json")
+        if (!healthCheck(appUrl)) {
+            error "health check did not report UP within ${env.HEALTH_TRIES} x 10 seconds"
+        }
+        if (!smokeTest(envName)) {
+            error "smoke test failed"
+        }
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException abort) {
+        throw abort   // someone pressed Abort: stop, don't roll back
+    } catch (err) {
+        rollback(envName, appUrl, previous, err.getMessage())
+    }
+}
+
+// AC1: find the previous healthy release for this environment in the last successful build's
+// deployment-<env>.json, print it and archive it as previous-<env>.json.
+// A rolled-back build is marked FAILED, so "last successful" is always the last good release.
+// Returns [imageRef: ..., releaseId: ...], or null if there is none (e.g. the very first deploy).
+def recordPreviousRelease(String envName) {
+    sh 'rm -rf previous && mkdir -p previous'
+    try {
+        copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
+                      filter: "deployment-${envName}.json", target: 'previous', optional: true)
+    } catch (err) {
+        echo "Could not copy the previous deployment record: ${err.getMessage()}"
+    }
+    def result = null
+    withEnv(["DEPLOY_ENV=${envName}"]) {
+        sh '''
+            python3 -c '
+import json, os
+e = os.environ
+src = "previous/deployment-" + e["DEPLOY_ENV"] + ".json"
+prev = json.load(open(src)) if os.path.exists(src) else {}
+ok = prev.get("status") == "Success"
+json.dump({
+    "environment":         e["DEPLOY_ENV"],
+    "previous_release_id": prev.get("release_id") if ok else None,
+    "previous_image_ref":  prev.get("image_ref") if ok else None,
+    "source_build":        prev.get("build_url") if ok else None,
+    "recorded_before":     e["RELEASE_ID"],
+}, open("previous-" + e["DEPLOY_ENV"] + ".json", "w"), indent=2)
+'
+            cat "previous-$DEPLOY_ENV.json"
+        '''
+        def ref = sh(returnStdout: true, script: '''python3 -c 'import json,os; print(json.load(open("previous-" + os.environ["DEPLOY_ENV"] + ".json"))["previous_image_ref"] or "")' ''').trim()
+        def rel = sh(returnStdout: true, script: '''python3 -c 'import json,os; print(json.load(open("previous-" + os.environ["DEPLOY_ENV"] + ".json"))["previous_release_id"] or "")' ''').trim()
+        if (ref) {
+            result = [imageRef: ref, releaseId: rel]
+        }
+    }
+    archiveArtifacts artifacts: "previous-${envName}.json", fingerprint: true
+    if (result) {
+        echo "Previous healthy ${envName} release: ${result.releaseId} (${result.imageRef})"
+    } else {
+        echo "No previous healthy ${envName} release recorded - a rollback would not be possible"
+    }
+    return result
+}
+
+// AC2: check /actuator/health every 10 seconds, up to HEALTH_TRIES times (30 = 5 minutes).
+// Returns true as soon as the app reports UP, false if it never does.
+def healthCheck(String appUrl) {
+    def rc = 1
+    withEnv(["APP_URL=${appUrl}"]) {
+        rc = sh(returnStatus: true, script: '''
+            for i in $(seq 1 "$HEALTH_TRIES"); do
+              if curl -fsS --connect-timeout 5 --max-time 10 "$APP_URL/actuator/health" | grep -Eq '"status" *: *"UP"'; then
+                echo "health check: UP after $i check(s)"
+                exit 0
+              fi
+              echo "health check: not UP yet ($i/$HEALTH_TRIES)"
+              sleep 10
+            done
+            echo "health check: FAILED - not UP within $((HEALTH_TRIES * 10)) seconds"
+            exit 1
+        ''')
+    }
+    return rc == 0
+}
+
+// AC3: CT-47's smoke test (Izu). It only runs against the approved stage URL, so prod is
+// verified by the health check. Until CT-47 is merged the script isn't in the repo yet,
+// so the check is skipped with a message. "timeout 480" = give up after 8 minutes.
+def smokeTest(String envName) {
+    if (envName != 'stage') {
+        return true
+    }
+    if (!fileExists('scripts/smoke_test.py')) {
+        echo "smoke test: scripts/smoke_test.py not found (CT-47 not merged yet) - skipped"
+        return true
+    }
+    def rc = sh(returnStatus: true,
+                script: 'SMOKE_ALLOWED_STAGE_URL="$STAGE_APP_URL" timeout 480 python3 scripts/smoke_test.py')
+    junit testResults: 'smoke-test-results.xml', allowEmptyResults: true
+    return rc == 0
+}
+
+// Roll one environment back to its previous healthy release, check it again, record what
+// happened in rollback-<env>.json (AC4) and always fail the build, even if the rollback worked.
+def rollback(String envName, String appUrl, Map previous, String reason) {
+    def started = sh(returnStdout: true, script: 'date -u +%Y-%m-%dT%H:%M:%SZ').trim()
+    echo "=================== ROLLBACK: ${envName} ==================="
+    echo "Failed release : ${env.RELEASE_ID} (${env.IMAGE_REF})"
+    echo "Reason         : ${reason}"
+
+    def result = 'NO_PREVIOUS_RELEASE'
+    if (previous) {
+        echo "Rolling back to: ${previous.releaseId} (${previous.imageRef})"
+        try {
+            deployWithAnsible(envName, previous.imageRef, previous.releaseId, "deployment-${envName}-rollback.json")
+            def healthy = healthCheck(appUrl)
+            def smokePassed = healthy && smokeTest(envName)
+            result = (healthy && smokePassed) ? 'ROLLED_BACK' : 'ROLLBACK_FAILED'
+        } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException abort) {
+            throw abort
+        } catch (err) {
+            echo "Rollback deploy failed: ${err.getMessage()}"
+            result = 'ROLLBACK_FAILED'
+        }
+    }
+
+    def restoredRef = previous ? previous.imageRef : ''
+    def restoredRelease = previous ? previous.releaseId : ''
+    withEnv(["DEPLOY_ENV=${envName}", "RB_REASON=${reason}", "RB_RESULT=${result}",
+             "RB_STARTED=${started}", "RB_RESTORED_REF=${restoredRef}",
+             "RB_RESTORED_RELEASE=${restoredRelease}"]) {
+        sh '''
+            python3 -c '
+import json, os, datetime
+e = os.environ
+json.dump({
+    "environment":            e["DEPLOY_ENV"],
+    "result":                 e["RB_RESULT"],
+    "reason":                 e["RB_REASON"],
+    "failed_release_id":      e["RELEASE_ID"],
+    "failed_image_ref":       e["IMAGE_REF"],
+    "restored_release_id":    e["RB_RESTORED_RELEASE"] or None,
+    "restored_image_ref":     e["RB_RESTORED_REF"] or None,
+    "health_timeout_seconds": int(e["HEALTH_TRIES"]) * 10,
+    "rollback_started_at":    e["RB_STARTED"],
+    "rollback_finished_at":   datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "build_url":              e["BUILD_URL"],
+}, open("rollback-" + e["DEPLOY_ENV"] + ".json", "w"), indent=2)
+'
+            cat "rollback-$DEPLOY_ENV.json"
+        '''
+    }
+    archiveArtifacts artifacts: "rollback-${envName}.json", fingerprint: true
+    echo "Rollback result: ${result}"
+    echo "=========================================================="
+
+    if (result == 'ROLLED_BACK') {
+        currentBuild.description = "${envName} rolled back to ${previous.releaseId} (${env.RELEASE_ID} failed: ${reason})"
+        error "Deploy of ${env.RELEASE_ID} to ${envName} failed and was rolled back to ${previous.releaseId}"
+    } else if (result == 'NO_PREVIOUS_RELEASE') {
+        currentBuild.description = "${envName} deploy failed - no previous release to roll back to"
+        error "Deploy of ${env.RELEASE_ID} to ${envName} failed and there is no previous healthy release - manual recovery needed"
+    } else {
+        currentBuild.description = "${envName} ROLLBACK FAILED - manual recovery needed"
+        error "ROLLBACK FAILED for ${envName} - manual recovery needed"
     }
 }
