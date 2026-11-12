@@ -20,8 +20,10 @@
 //   - release.json (commit, version, digest) and deployment-<env>.json are archived with the build
 //
 // CT-46 Automated rollback:
-//   - Before each deploy, the previous healthy release is read from the last successful build's
-//     deployment-<env>.json (Copy Artifact plugin) and archived as previous-<env>.json
+//   - Before each deploy, the previous healthy release is read from SSM Parameter Store
+//     (/19thoct/bankapp/<env>/last-good) and archived as previous-<env>.json. Parameter Store
+//     survives the nightly rebuild; Jenkins build history does not.
+//   - After a deploy passes its checks, the new release is saved there as the new last-good
 //   - After the deploy, /actuator/health must report UP within HEALTH_TRIES x 10 seconds
 //     (30 x 10s = 5 minutes), and on stage the CT-47 smoke test must pass
 //   - If the deploy or a check fails, the previous image_ref is redeployed automatically, checked
@@ -81,6 +83,7 @@ pipeline {
         // CT-46 rollback
         HEALTH_TRIES          = '30'   // health check timeout: 30 checks x 10 seconds = 5 minutes
         PROD_APP_URL          = ''     // prod ALB URL, to be set by CT-28 (prod can't be verified without it)
+        LAST_GOOD_PARAM_PREFIX = '/19thoct/bankapp'   // + /<env>/last-good in SSM Parameter Store
     }
 
     stages {
@@ -495,6 +498,7 @@ def deployAndVerify(String envName, String appUrl) {
         if (!smokeTest(envName)) {
             error "smoke test failed"
         }
+        saveLastGood(envName)   // passed every check: this is now the last healthy release
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException abort) {
         throw abort   // someone pressed Abort: stop, don't roll back
     } catch (err) {
@@ -502,32 +506,31 @@ def deployAndVerify(String envName, String appUrl) {
     }
 }
 
-// AC1: find the previous healthy release for this environment in the last successful build's
-// deployment-<env>.json, print it and archive it as previous-<env>.json.
-// A rolled-back build is marked FAILED, so "last successful" is always the last good release.
+// AC1: read the previous healthy release for this environment from SSM Parameter Store
+// (/19thoct/bankapp/<env>/last-good), print it and archive it as previous-<env>.json.
+// Parameter Store is used because Jenkins (and its build history) is rebuilt every night.
 // Returns [imageRef: ..., releaseId: ...], or null if there is none (e.g. the very first deploy).
 def recordPreviousRelease(String envName) {
-    sh 'rm -rf previous && mkdir -p previous'
-    try {
-        copyArtifacts(projectName: env.JOB_NAME, selector: lastSuccessful(),
-                      filter: "deployment-${envName}.json", target: 'previous', optional: true)
-    } catch (err) {
-        echo "Could not copy the previous deployment record: ${err.getMessage()}"
-    }
     def result = null
-    withEnv(["DEPLOY_ENV=${envName}"]) {
+    withEnv(["DEPLOY_ENV=${envName}", "PARAM_NAME=${env.LAST_GOOD_PARAM_PREFIX}/${envName}/last-good"]) {
         sh '''
+            # Empty if the parameter doesn't exist yet (first deploy)
+            VALUE=$(aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_NAME" \
+                      --query Parameter.Value --output text 2>/dev/null || true)
+            export VALUE
             python3 -c '
 import json, os
 e = os.environ
-src = "previous/deployment-" + e["DEPLOY_ENV"] + ".json"
-prev = json.load(open(src)) if os.path.exists(src) else {}
-ok = prev.get("status") == "Success"
+try:
+    prev = json.loads(e.get("VALUE") or "{}")
+except ValueError:
+    prev = {}
 json.dump({
     "environment":         e["DEPLOY_ENV"],
-    "previous_release_id": prev.get("release_id") if ok else None,
-    "previous_image_ref":  prev.get("image_ref") if ok else None,
-    "source_build":        prev.get("build_url") if ok else None,
+    "previous_release_id": prev.get("release_id"),
+    "previous_image_ref":  prev.get("image_ref"),
+    "saved_at":            prev.get("saved_at"),
+    "source":              e["PARAM_NAME"],
     "recorded_before":     e["RELEASE_ID"],
 }, open("previous-" + e["DEPLOY_ENV"] + ".json", "w"), indent=2)
 '
@@ -546,6 +549,28 @@ json.dump({
         echo "No previous healthy ${envName} release recorded - a rollback would not be possible"
     }
     return result
+}
+
+// After a deploy passes the health check and smoke test, save it as the last healthy
+// release for this environment, so the next deploy can roll back to it.
+def saveLastGood(String envName) {
+    withEnv(["PARAM_NAME=${env.LAST_GOOD_PARAM_PREFIX}/${envName}/last-good"]) {
+        sh '''
+            VALUE=$(python3 -c '
+import json, os, datetime
+e = os.environ
+print(json.dumps({
+    "release_id": e["RELEASE_ID"],
+    "image_ref":  e["IMAGE_REF"],
+    "saved_at":   datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "build_url":  e["BUILD_URL"],
+}))
+')
+            aws ssm put-parameter --region "$AWS_REGION" --name "$PARAM_NAME" \
+              --type String --overwrite --value "$VALUE" > /dev/null
+            echo "Saved last healthy release to $PARAM_NAME: $RELEASE_ID"
+        '''
+    }
 }
 
 // AC2: check /actuator/health every 10 seconds, up to HEALTH_TRIES times (30 = 5 minutes).
