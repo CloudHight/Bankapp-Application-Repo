@@ -308,15 +308,17 @@ def deployWithAnsible(String envName) {
             BUCKET="$SCRIPTS_BUCKET_PREFIX-$ACCOUNT_ID"
             DB_HOST=$(aws rds describe-db-instances --region "$AWS_REGION" --db-instance-identifier "$DB_INSTANCE" \
                         --query 'DBInstances[0].Endpoint.Address' --output text)
-            DB_SECRET=$(aws rds describe-db-instances --region "$AWS_REGION" --db-instance-identifier "$DB_INSTANCE" \
-                        --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+            # CT-62: the app and Flyway each use their own limited MySQL user, never the admin account.
+            # These are secret NAMES; the Docker hosts read the values themselves.
+            DB_SECRET="19thoct/bankapp/$DEPLOY_ENV/db-app"
+            DB_MIGRATE_SECRET="19thoct/bankapp/$DEPLOY_ENV/db-migrate"
             INSTANCE_ID=$(aws ec2 describe-instances --region "$AWS_REGION" \
                         --filters "Name=tag:Name,Values=$ANSIBLE_SERVER_NAME" Name=instance-state-name,Values=running \
                         --query 'Reservations[0].Instances[0].InstanceId' --output text)
             echo "Deploying $IMAGE_REF to $DEPLOY_ENV via $INSTANCE_ID"
 
             # Command run as root on the Ansible server: fetch the current playbook, run it as ec2-user
-            CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}.aws_ec2.yml deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET"
+            CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}.aws_ec2.yml deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET -e db_migrate_secret_id=$DB_MIGRATE_SECRET"
             python3 -c 'import json,sys; print(json.dumps({"commands": [sys.argv[1]], "executionTimeout": ["900"]}))' "$CMD" > ssm-params.json
 
             COMMAND_ID=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$INSTANCE_ID" \

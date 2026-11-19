@@ -15,6 +15,10 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+    # CT-62: Flyway changes the tables with its own user (bankapp_migrate).
+    # The app connects as bankapp_app, which can read and change data but not tables.
+    user: ${FLYWAY_USERNAME}
+    password: ${FLYWAY_PASSWORD}
 
 management:
   endpoint:
