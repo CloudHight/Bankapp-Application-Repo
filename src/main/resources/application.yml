@@ -5,18 +5,40 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
 management:
+  # Actuator runs on its own port so the load balancer's public listener never serves it
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:9090}
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        # "prometheus" removed: metrics go to New Relic over OTLP, and the
+        # prometheus endpoint needs micrometer-registry-prometheus, which is not added
+        include: health,info,metrics
   endpoint:
     health:
       probes:
-        enabled: true
+        enabled: true            # adds /actuator/health/liveness and /readiness
       show-details: when-authorized
+      group:
+        liveness:
+          include: livenessState          # alive only: a database outage must NOT restart the app
+        readiness:
+          include: readinessState,db      # ready only when it can serve requests
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   info:
     env:
       enabled: true
+
+# Credentials for the protected actuator endpoints (metrics, info).
+# On the servers they come from Secrets Manager through /etc/bankapp/actuator.env.
+# No default password here on purpose: the app will not start without one (see the dev profile below).
+bankapp:
+  actuator:
+    username: ${BANKAPP_ACTUATOR_USERNAME:actuator}
+    password: ${BANKAPP_ACTUATOR_PASSWORD}
 
 info:
   app:
@@ -52,3 +74,8 @@ spring:
       enabled: true
   flyway:
     enabled: false
+
+# Local development only
+bankapp:
+  actuator:
+    password: ${BANKAPP_ACTUATOR_PASSWORD:dev-only-password}
