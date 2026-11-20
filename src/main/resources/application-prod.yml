@@ -23,3 +23,8 @@ management:
 
 server:
   forward-headers-strategy: framework
+
+logging:
+  structured:
+    format:
+      console: ecs
