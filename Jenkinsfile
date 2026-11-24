@@ -29,10 +29,11 @@
 //   - If the deploy or a check fails, the previous image_ref is redeployed automatically, checked
 //     again, recorded in rollback-<env>.json, and the build is marked FAILED
 //
-// Deploy is done by Ansible on the team-1 Ansible server, started through SSM Run Command
-// (Jenkins and the app servers are in different VPCs, so there is no SSH path). The playbook
-// deploy-bankapp.yml (DevSecOps repo, module/Ansible/scripts) pulls the image this pipeline
-// pushed and (re)runs it on the stage_hosts / prod_hosts inventory. Nexus and DB credentials
+
+// Deploy is done by Ansible on the 19thoct Ansible server, started through SSM Run Command
+// (Jenkins has no SSH access to the app servers). The playbook deploy-bankapp.yml (Terraform
+// repo, uploaded to the scripts bucket) pulls the image this pipeline pushed and (re)runs it on
+// the Docker hosts found by the stage.aws_ec2.yml / prod.aws_ec2.yml dynamic inventory. Nexus and DB credentials
 // are read from Secrets Manager on the target hosts; none are passed from Jenkins.
 //
 // Requires on the Jenkins agent: JDK 17, Maven, docker CLI, trivy, aws CLI, python3, curl
@@ -72,17 +73,16 @@ pipeline {
 
         // Deploy targets, looked up at deploy time (no IPs or endpoints hard-coded)
         AWS_REGION            = 'eu-west-3'
-        ANSIBLE_SERVER_NAME   = 'team-1-ansible-server'  // Name tag of the Ansible server
-        SCRIPTS_BUCKET_PREFIX = 'team-1-ansible-scripts' // + "-<account id>": holds deploy-bankapp.yml
-        DB_INSTANCE           = 'team-1-db'              // RDS instance; endpoint + managed secret read from it
-        NVD_API_KEY           = credentials('nvd-key')   // required: the build stops if this credential is missing
+        ANSIBLE_SERVER_NAME   = '19thoct-ansible'        // Name tag of the Ansible server
+        SCRIPTS_BUCKET_PREFIX = '19thoct-ansible-scripts' // + "-<account id>": holds deploy-bankapp.yml
+        NVD_API_KEY            = credentials('nvd-key')  // required: the build stops if this credential is missing
         // DAST - URL of the app as deployed on the stage hosts
         STAGE_APP_URL         = 'https://stage.everythingops.io'   // stage ALB (TLS on 443; 8080 is not exposed)
         ZAP_IMAGE             = 'ghcr.io/zaproxy/zaproxy:stable'
 
         // CT-46 rollback
         HEALTH_TRIES          = '30'   // health check timeout: 30 checks x 10 seconds = 5 minutes
-        PROD_APP_URL          = ''     // prod ALB URL, to be set by CT-28 (prod can't be verified without it)
+        PROD_APP_URL          = 'https://prod.everythingops.io'   // prod ALB (TLS on 443): prod health check + rollback (CT-46)
         LAST_GOOD_PARAM_PREFIX = '/19thoct/bankapp'   // + /<env>/last-good in SSM Parameter Store
     }
 
@@ -132,7 +132,7 @@ pipeline {
         // Secret-scanning checks are included in the CI pipeline.
         stage('Secret Scanning') {
             steps {
-                sh 'trivy fs --scanners secret --exit-code 1 .'
+                sh 'trivy fs --scanners secret --offline-scan --exit-code 1 .'
             }
         }
             
@@ -415,8 +415,10 @@ json.dump({
 // It always deploys a digest reference (registry/bankapp@sha256:...), never a tag, and records
 // what it deployed in recordName (deployment-<env>.json, or deployment-<env>-rollback.json).
 def deployWithAnsible(String envName, String imageRef, String releaseId, String recordName) {
+    // One RDS instance per environment (CT-53/CT-54): bankapp-db-stage-19thoct / bankapp-db-prod-19thoct.
     withEnv(["DEPLOY_ENV=${envName}", "DEPLOY_IMAGE_REF=${imageRef}",
-             "DEPLOY_RELEASE_ID=${releaseId}", "RECORD_FILE=${recordName}"]) {
+             "DEPLOY_RELEASE_ID=${releaseId}", "RECORD_FILE=${recordName}",
+             "DB_INSTANCE=bankapp-db-${envName}-19thoct"]) {
         try {
             sh '''
                 set -eu
@@ -435,7 +437,7 @@ def deployWithAnsible(String envName, String imageRef, String releaseId, String 
                 echo "Ansible server: $INSTANCE_ID"
 
                 # Command run as root on the Ansible server: fetch the current playbook, run it as ec2-user
-                CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}_hosts deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$DEPLOY_IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET"
+                CMD="cd /home/ec2-user/ansible && aws s3 cp s3://$BUCKET/ansible-script/deploy-bankapp.yml deploy-bankapp.yml --quiet && sudo -u ec2-user env ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${DEPLOY_ENV}.aws_ec2.yml deploy-bankapp.yml --private-key /home/ec2-user/.ssh/id_rsa -e image_ref=$DEPLOY_IMAGE_REF -e db_host=$DB_HOST -e db_secret_id=$DB_SECRET"
                 python3 -c 'import json,sys; print(json.dumps({"commands": [sys.argv[1]], "executionTimeout": ["900"]}))' "$CMD" > ssm-params.json
 
                 COMMAND_ID=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$INSTANCE_ID" \
