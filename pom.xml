@@ -25,6 +25,10 @@
 
         <!-- Dependency versions -->
         <springdoc.version>2.8.17</springdoc.version>
+        <!-- Security fixes: newer versions than Spring Boot gives by default -->
+        <tomcat.version>10.1.62</tomcat.version>
+        <jackson-bom.version>2.21.9</jackson-bom.version>
+        <log4j2.version>2.26.1</log4j2.version>
         <jacoco.version>0.8.12</jacoco.version>
         <sonar-maven-plugin.version>4.0.0.4121</sonar-maven-plugin.version>
         <owasp-dependency-check.version>12.1.0</owasp-dependency-check.version>
@@ -51,6 +55,16 @@
         <nexus.url>https://nexus.everythingops.io</nexus.url>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Security fix: newer swagger-ui (fixes DOMPurify CVEs) -->
+            <dependency>
+                <groupId>org.webjars</groupId>
+                <artifactId>swagger-ui</artifactId>
+                <version>5.36.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
