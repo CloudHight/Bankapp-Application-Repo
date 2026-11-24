@@ -24,7 +24,7 @@
 //     (/19thoct/bankapp/<env>/last-good) and archived as previous-<env>.json. Parameter Store
 //     survives the nightly rebuild; Jenkins build history does not.
 //   - After a deploy passes its checks, the new release is saved there as the new last-good
-//   - After the deploy, /actuator/health must report UP within HEALTH_TRIES x 10 seconds
+//   - After the deploy, /actuator/health/readiness must report UP within HEALTH_TRIES x 10 seconds
 //     (30 x 10s = 5 minutes), and on stage the CT-47 smoke test must pass
 //   - If the deploy or a check fails, the previous image_ref is redeployed automatically, checked
 //     again, recorded in rollback-<env>.json, and the build is marked FAILED
@@ -335,7 +335,7 @@ json.dump({
                 // before scanning it (30 tries, at most ~10 min).
                 sh '''
                     for i in $(seq 1 30); do
-                      curl -fsS --connect-timeout 5 --max-time 10 "$STAGE_APP_URL/actuator/health" && exit 0
+                      curl -fsS --connect-timeout 5 --max-time 10 "$STAGE_APP_URL/actuator/health/readiness" && exit 0
                       echo "waiting for $STAGE_APP_URL ($i/30)"; sleep 10
                     done
                     echo "stage app never became healthy"; exit 1
@@ -575,14 +575,14 @@ print(json.dumps({
     }
 }
 
-// AC2: check /actuator/health every 10 seconds, up to HEALTH_TRIES times (30 = 5 minutes).
+// AC2: check /actuator/health/readiness every 10 seconds, up to HEALTH_TRIES times (30 = 5 minutes).
 // Returns true as soon as the app reports UP, false if it never does.
 def healthCheck(String appUrl) {
     def rc = 1
     withEnv(["APP_URL=${appUrl}"]) {
         rc = sh(returnStatus: true, script: '''
             for i in $(seq 1 "$HEALTH_TRIES"); do
-              if curl -fsS --connect-timeout 5 --max-time 10 "$APP_URL/actuator/health" | grep -Eq '"status" *: *"UP"'; then
+              if curl -fsS --connect-timeout 5 --max-time 10 "$APP_URL/actuator/health/readiness" | grep -Eq '"status" *: *"UP"'; then
                 echo "health check: UP after $i check(s)"
                 exit 0
               fi
