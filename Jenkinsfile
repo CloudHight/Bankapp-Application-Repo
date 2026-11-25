@@ -319,7 +319,7 @@ json.dump({
                 // before scanning it (30 tries, at most ~10 min).
                 sh '''
                     for i in $(seq 1 30); do
-                      curl -fsS --connect-timeout 5 --max-time 10 "$STAGE_APP_URL/actuator/health" && exit 0
+                      curl -fsS --connect-timeout 5 --max-time 10 "$STAGE_APP_URL/actuator/health/readiness" && exit 0
                       echo "waiting for $STAGE_APP_URL ($i/30)"; sleep 10
                     done
                     echo "stage app never became healthy"; exit 1
