@@ -13,4 +13,9 @@
   </suppress>
 -->
 <suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+  <suppress until="2026-12-26Z">
+    <notes>EX-001. Owner: Kim. Why: false positive - CVE targets Angus Mail (SMTP), matched to angus-activation via low-confidence CPE; app sends no email. Jira: CT-45.</notes>
+    <packageUrl regex="true">^pkg:maven/org\.eclipse\.angus/angus-activation@.*$</packageUrl>
+    <cve>CVE-2025-7962</cve>
+  </suppress>
 </suppressions>

@@ -31,4 +31,4 @@ The scanner stops applying the exception on the expiry date, so the next build f
 
 | ID | CVE | Scanner | Package or image | Severity | Justification | Owner | Approver | Approved on | Expires on | Jira | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | | | | |
+| EX-001 | CVE-2025-7962 | Dependency-Check | org.eclipse.angus:angus-activation 2.0.3 | High | False positive: the CVE affects Angus Mail (SMTP), not angus-activation; Dependency-Check matched it through a low-confidence CPE. The app does not send email. No fixed version exists (2.0.3 is the latest stable). | Kim | Hina | Pending | 2026-12-26 | CT-45 | Open |
