@@ -23,3 +23,11 @@ management:
 
 server:
   forward-headers-strategy: framework
+
+# CT-64: no API docs or Swagger UI in deployed environments.
+# Stage and prod both run with this profile; local runs still have them.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
