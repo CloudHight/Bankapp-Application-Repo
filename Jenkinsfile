@@ -500,12 +500,15 @@ def deployAndVerify(String envName, String appUrl) {
         if (!smokeTest(envName)) {
             error "smoke test failed"
         }
-        saveLastGood(envName)   // passed every check: this is now the last healthy release
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException abort) {
         throw abort   // someone pressed Abort: stop, don't roll back
     } catch (err) {
-        rollback(envName, appUrl, previous, err.getMessage())
+        rollback(envName, appUrl, previous, err.getMessage())   // always fails the build
     }
+    // Only reached when the deploy, health check and smoke test all passed.
+    // Saved outside the try on purpose: if saving fails, the deploy is still healthy,
+    // so the build fails WITHOUT rolling back a good release.
+    saveLastGood(envName)
 }
 
 // AC1: read the previous healthy release for this environment from SSM Parameter Store
@@ -516,9 +519,19 @@ def recordPreviousRelease(String envName) {
     def result = null
     withEnv(["DEPLOY_ENV=${envName}", "PARAM_NAME=${env.LAST_GOOD_PARAM_PREFIX}/${envName}/last-good"]) {
         sh '''
-            # Empty if the parameter doesn't exist yet (first deploy)
-            VALUE=$(aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_NAME" \
-                      --query Parameter.Value --output text 2>/dev/null || true)
+            # ParameterNotFound = no previous release yet (first deploy): carry on with VALUE empty.
+            # Any other error (e.g. AccessDenied) fails the build BEFORE deploying, so a missing
+            # permission can't silently turn rollback off.
+            if OUT=$(aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM_NAME" \
+                       --query Parameter.Value --output text 2> "ssm-get-$DEPLOY_ENV.err"); then
+                VALUE="$OUT"
+            elif grep -q ParameterNotFound "ssm-get-$DEPLOY_ENV.err"; then
+                VALUE=""
+            else
+                cat "ssm-get-$DEPLOY_ENV.err" >&2
+                echo "ERROR: could not read $PARAM_NAME (see above). Fix this before deploying, otherwise rollback would not work." >&2
+                exit 1
+            fi
             export VALUE
             python3 -c '
 import json, os
